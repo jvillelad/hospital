@@ -20,3 +20,8 @@ bash start_backend.sh
 URLs por defecto (localhost):
 - API: http://localhost:3000
 - Frontend: abre `frontend/login.html` o servir con Nginx en http://localhost
+
+
+
+Puede hacer sus pruebas en:
+http://clinica.securitylabs.site:3000/login.html
