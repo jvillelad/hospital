@@ -1,0 +1,8 @@
+@media (max-width: 900px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .list .item { grid-template-columns: 1fr 1fr; }
+  .display-current { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 600px) {
+  .display-current { grid-template-columns: 1fr; }
+}

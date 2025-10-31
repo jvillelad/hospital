@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Médico | Turnos</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <nav class="topbar">
+    <div class="brand">Panel Médico</div>
+    <div>
+      <a href="triage.html">Triaje</a>
+      <a href="display.html" target="_blank">Display</a>
+      <a href="#" id="logout">Salir</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="card">
+      <h2>Turnos en espera</h2>
+      <div id="lista-espera" class="list"></div>
+    </section>
+  </div>
+
+  <script>
+    document.getElementById('logout').addEventListener('click', e => {
+      e.preventDefault();
+      localStorage.clear();
+      location.href = 'login.html';
+    });
+  </script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
