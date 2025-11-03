@@ -25,6 +25,4 @@ URLs por defecto (localhost):
 - Frontend: abre `frontend/login.html` o servir con Nginx en http://localhost
 
 Credenciales demo:
-- admin@demo.com / password
-- enfermeria@demo.com / password
-- medico@demo.com / password
+- admin@hospital.com / password
