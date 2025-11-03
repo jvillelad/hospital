@@ -1,6 +1,6 @@
 // ===============================
 // Sistema Visual de Cola de Turnos
-// Backend + Frontend unificado
+// Backend con Socket.IO + SQL Server
 // ===============================
 
 import express from "express";
@@ -10,6 +10,8 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createServer } from "http";
+import { Server } from "socket.io";
 
 dotenv.config();
 
@@ -18,7 +20,7 @@ app.use(cors());
 app.use(express.json());
 
 // ===============================
-// Conexión a SQL Server
+// Conexión a SQL Server con reconexión automática
 // ===============================
 const dbConfig = {
   user: process.env.DB_USER,
@@ -26,51 +28,45 @@ const dbConfig = {
   server: process.env.DB_SERVER,
   database: process.env.DB_NAME,
   options: {
-    encrypt: false,
-    trustServerCertificate: true,
+    encrypt: process.env.DB_ENCRYPT === "true",
+    trustServerCertificate: process.env.DB_TRUST_CERT === "true",
     enableArithAbort: true
   }
 };
 
 let pool;
-async function conectarDB() {
+
+async function getPool() {
   try {
-    pool = await mssql.connect(dbConfig);
-    console.log("✅ Conectado a SQL Server");
+    if (!pool || !pool.connected) {
+      console.log("🔄 Conectando a SQL Server...");
+      pool = await mssql.connect(dbConfig);
+      console.log("✅ Conectado a SQL Server");
+    }
+    return pool;
   } catch (err) {
-    console.error("❌ Error de conexión SQL:", err);
-  }
-}
-await conectarDB();
-
-// ===============================
-// Middleware de autenticación JWT
-// ===============================
-function auth(req, res, next) {
-  const header = req.headers["authorization"];
-  if (!header) return res.status(401).json({ msg: "Token faltante" });
-
-  const token = header.split(" ")[1];
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch {
-    return res.status(403).json({ msg: "Token inválido" });
+    console.error("❌ Error al conectar con SQL:", err);
+    throw err;
   }
 }
 
+async function safeRequest() {
+  const db = await getPool();
+  return db.request();
+}
+
 // ===============================
-// Rutas API
+// HTTP básico
 // ===============================
 app.get("/", (req, res) => res.json({ ok: true, name: "Hospital Turnos API" }));
 
-// LOGIN
+// ===============================
+// Login
+// ===============================
 app.post("/api/login", async (req, res) => {
   const { correo, password } = req.body;
   try {
-    const result = await pool
-      .request()
+    const result = await (await safeRequest())
       .input("correo", mssql.VarChar, correo)
       .input("password", mssql.VarChar, password)
       .query("SELECT * FROM Usuarios WHERE correo=@correo AND password=@password");
@@ -87,150 +83,253 @@ app.post("/api/login", async (req, res) => {
 
     res.json({ token, user });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error en /api/login:", err);
     res.status(500).json({ message: "Error en servidor" });
   }
 });
 
-// CLINICAS
-app.get("/api/clinicas", auth, async (req, res) => {
-  try {
-    const result = await pool.request().query("SELECT * FROM Clinicas");
-    res.json(result.recordset);
-  } catch (err) {
-    res.status(500).json({ message: "Error al consultar clínicas" });
-  }
-});
-
-// PACIENTES
-app.get("/api/pacientes", auth, async (req, res) => {
-  try {
-    const result = await pool.request().query("SELECT * FROM Pacientes");
-    res.json(result.recordset);
-  } catch (err) {
-    res.status(500).json({ message: "Error al consultar pacientes" });
-  }
-});
-
-app.post("/api/pacientes", auth, async (req, res) => {
-  const { nombre, edad, sintomas } = req.body;
-  if (!nombre || !edad || !sintomas)
-    return res.status(400).json({ message: "Datos incompletos" });
-
-  try {
-    await pool
-      .request()
-      .input("nombre", mssql.VarChar, nombre)
-      .input("edad", mssql.Int, edad)
-      .input("sintomas", mssql.VarChar, sintomas)
-      .input("estado", mssql.VarChar, "Registrado")
-      .query("INSERT INTO Pacientes (nombre, edad, sintomas, estado) VALUES (@nombre, @edad, @sintomas, @estado)");
-    res.json({ message: "Paciente registrado correctamente" });
-  } catch (err) {
-    console.error("❌ Error al registrar paciente:", err);
-    res.status(500).json({ message: "Error al registrar paciente" });
-  }
-});
-
 // ===============================
-// CREAR NUEVO TURNO (desde Triaje)
-// ===============================
-app.post('/api/turnos', auth, async (req, res) => {
-  try {
-    // Log de depuración
-    console.log('🟦 POST /api/turnos body:', req.body);
-    const { paciente_id, clinica_id } = req.body;
-
-    if (!paciente_id || !clinica_id) {
-      console.warn('⚠️ Datos incompletos:', req.body);
-      return res.status(400).json({ message: 'Datos incompletos' });
-    }
-
-    // Validar existencia (opcional pero útil para mensajes claros)
-    const [pacienteQ, clinicaQ] = await Promise.all([
-      pool.request().input('pid', mssql.Int, paciente_id).query('SELECT id FROM Pacientes WHERE id=@pid'),
-      pool.request().input('cid', mssql.Int, clinica_id).query('SELECT id FROM Clinicas WHERE id=@cid')
-    ]);
-    if (pacienteQ.recordset.length === 0) return res.status(400).json({ message: 'Paciente no existe' });
-    if (clinicaQ.recordset.length === 0) return res.status(400).json({ message: 'Clínica no existe' });
-
-    const fechaHora = new Date();
-    await pool.request()
-      .input('paciente_id', mssql.Int, Number(paciente_id))
-      .input('clinica_id', mssql.Int, Number(clinica_id))
-      .input('estado', mssql.VarChar, 'En espera')
-      .input('fechaHora', mssql.DateTime, fechaHora)
-      .query(`
-        INSERT INTO Turnos (paciente_id, clinica_id, estado, fechaHora)
-        VALUES (@paciente_id, @clinica_id, @estado, @fechaHora)
-      `);
-
-    console.log('✅ Turno insertado OK');
-    return res.json({ message: 'Turno creado correctamente' });
-  } catch (err) {
-    console.error('❌ Error al crear turno:', err);
-    return res.status(500).json({ message: 'Error al crear turno', detail: String(err) });
-  }
-});
-
-// ===============================
-// CONSULTAR Y ACTUALIZAR TURNOS
-// ===============================
-app.get("/api/turnos", auth, async (req, res) => {
-  const estado = req.query.estado || "En espera";
-  try {
-    const result = await pool
-      .request()
-      .input("estado", mssql.VarChar, estado)
-      .query(`
-        SELECT T.id, T.estado, T.fechaHora, P.nombre AS paciente, C.nombre AS clinica
-        FROM Turnos T
-        JOIN Pacientes P ON T.paciente_id = P.id
-        JOIN Clinicas C ON T.clinica_id = C.id
-        WHERE T.estado = @estado
-        ORDER BY T.fechaHora DESC
-      `);
-    res.json(result.recordset);
-  } catch (err) {
-    res.status(500).json({ message: "Error al consultar turnos" });
-  }
-});
-
-app.post("/api/turnos/:id/:accion", auth, async (req, res) => {
-  const { id, accion } = req.params;
-  let nuevoEstado;
-  if (accion === "llamar") nuevoEstado = "Llamado";
-  else if (accion === "finalizar") nuevoEstado = "Finalizado";
-  else if (accion === "ausente") nuevoEstado = "Ausente";
-  else return res.status(400).json({ msg: "Acción inválida" });
-
-  try {
-    await pool
-      .request()
-      .input("id", mssql.Int, id)
-      .input("estado", mssql.VarChar, nuevoEstado)
-      .query("UPDATE Turnos SET estado=@estado WHERE id=@id");
-    res.json({ msg: "Actualizado" });
-  } catch (err) {
-    res.status(500).json({ message: "Error al actualizar turno" });
-  }
-});
-
-// ===============================
-// Servir frontend (sin Nginx)
+// Servir Frontend
 // ===============================
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, "../../frontend")));
-
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../../frontend/login.html"));
 });
 
 // ===============================
-// Arrancar servidor
+// Socket.IO
+// ===============================
+const server = createServer(app);
+const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    if (!token) return next(new Error("Token faltante"));
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = decoded;
+    next();
+  } catch {
+    next(new Error("Token inválido"));
+  }
+});
+
+function broadcastTurnosChanged() {
+  io.emit("turnos:changed");
+}
+
+// ===============================
+// EVENTOS DE SOCKET.IO
+// ===============================
+io.on("connection", (socket) => {
+  console.log(`🔌 Socket conectado: ${socket.id} (user:${socket.user?.id})`);
+
+  // --- CLÍNICAS ---
+  socket.on("clinicas:list", async (cb) => {
+    try {
+      const result = await (await safeRequest()).query("SELECT * FROM Clinicas");
+      cb?.({ ok: true, data: result.recordset });
+    } catch {
+      cb?.({ ok: false, message: "Error al consultar clínicas" });
+    }
+  });
+
+  // --- PACIENTES DISPONIBLES ---
+socket.on("pacientes:list", async (cb) => {
+  try {
+    const result = await (await safeRequest()).query(`
+      SELECT P.id, P.nombre
+      FROM Pacientes P
+      WHERE P.estado IN ('Registrado', 'Nuevo')
+      AND P.id NOT IN (
+        SELECT paciente_id FROM Turnos WHERE estado IN ('En espera', 'Llamado', 'En consulta')
+      )
+      ORDER BY P.nombre
+    `);
+    cb?.({ ok: true, data: result.recordset });
+  } catch (err) {
+    console.error("❌ pacientes:list", err);
+    cb?.({ ok: false, message: "Error al consultar pacientes" });
+  }
+});
+
+  // --- REGISTRO O ACTUALIZACIÓN DE PACIENTE ---
+  socket.on("paciente:create", async (payload, cb) => {
+    try {
+      const { nombre, edad, sintomas } = payload || {};
+      if (!nombre || !edad || !sintomas)
+        return cb?.({ ok: false, message: "Datos incompletos" });
+
+      const existente = await (await safeRequest())
+        .input("nombre", mssql.VarChar, nombre)
+        .query("SELECT TOP 1 * FROM Pacientes WHERE nombre=@nombre");
+
+      if (existente.recordset.length > 0) {
+        const paciente = existente.recordset[0];
+        const nuevoEstado = paciente.estado === "Finalizado" ? "Registrado" : "Registrado";
+        await (await safeRequest())
+          .input("nombre", mssql.VarChar, nombre)
+          .input("edad", mssql.Int, edad)
+          .input("sintomas", mssql.VarChar, sintomas)
+          .input("estado", mssql.VarChar, nuevoEstado)
+          .query(`
+            UPDATE Pacientes
+            SET edad=@edad, sintomas=@sintomas, estado=@estado
+            WHERE nombre=@nombre
+          `);
+        return cb?.({ ok: true, updated: true, message: "Paciente reactivado o actualizado correctamente" });
+      }
+
+      await (await safeRequest())
+        .input("nombre", mssql.VarChar, nombre)
+        .input("edad", mssql.Int, edad)
+        .input("sintomas", mssql.VarChar, sintomas)
+        .input("estado", mssql.VarChar, "Registrado")
+        .query(`
+          INSERT INTO Pacientes (nombre, edad, sintomas, estado)
+          VALUES (@nombre, @edad, @sintomas, @estado)
+        `);
+
+      cb?.({ ok: true, created: true, message: "Paciente registrado correctamente" });
+    } catch (err) {
+      console.error("❌ paciente:create", err);
+      cb?.({ ok: false, message: "Error al registrar paciente" });
+    }
+  });
+
+// --- CREAR TURNO ---
+socket.on("turno:create", async (payload, cb) => {
+  try {
+    const { paciente_id, clinica_id } = payload || {};
+    if (!paciente_id || !clinica_id)
+      return cb?.({ ok: false, message: "Datos incompletos" });
+
+    const db = await getPool(); // ✅ siempre usar getPool()
+
+    // 🔹 Obtener prefijo de la clínica
+    const prefijoQuery = await db.request()
+      .input("id", mssql.Int, clinica_id)
+      .query("SELECT TOP 1 prefijo FROM Clinicas WHERE id=@id");
+
+    const prefijo = (prefijoQuery.recordset[0]?.prefijo || "A").toUpperCase();
+
+    // 🔹 Buscar último ticket de esa clínica con ese prefijo
+    const ultimo = await db.request()
+      .input("cid", mssql.Int, clinica_id)
+      .input("pref", mssql.VarChar, prefijo + '%')
+      .query(`
+        SELECT TOP 1 ticket
+        FROM Turnos
+        WHERE clinica_id=@cid AND ticket LIKE @pref
+        ORDER BY id DESC
+      `);
+
+    // 🔹 Generar siguiente número
+    let nuevoTicket = `${prefijo}001`;
+    if (ultimo.recordset.length > 0) {
+      const prev = ultimo.recordset[0].ticket;
+      const num = parseInt(prev.replace(prefijo, "")) + 1;
+      nuevoTicket = prefijo + num.toString().padStart(3, "0");
+    }
+
+    // 🔹 Insertar nuevo turno
+    await db.request()
+      .input("paciente_id", mssql.Int, paciente_id)
+      .input("clinica_id", mssql.Int, clinica_id)
+      .input("estado", mssql.VarChar, "En espera")
+      .input("fechaHora", mssql.DateTime, new Date())
+      .input("ticket", mssql.VarChar, nuevoTicket)
+      .query(`
+        INSERT INTO Turnos (paciente_id, clinica_id, estado, fechaHora, ticket)
+        VALUES (@paciente_id, @clinica_id, @estado, @fechaHora, @ticket)
+      `);
+
+    // 🔹 Actualizar estado del paciente
+    await db.request()
+      .input("id", mssql.Int, paciente_id)
+      .input("estado", mssql.VarChar, "En espera")
+      .query("UPDATE Pacientes SET estado=@estado WHERE id=@id");
+
+    cb?.({ ok: true, message: "Turno creado correctamente", ticket: nuevoTicket });
+    broadcastTurnosChanged();
+  } catch (err) {
+    console.error("❌ turno:create", err);
+    cb?.({ ok: false, message: "Error al crear turno" });
+  }
+});
+
+  // --- LISTAR TURNOS ---
+socket.on("turnos:list", async (estado, cb) => {
+  try {
+    const db = await getPool(); // ✅ esto faltaba
+    const result = await db.request()
+      .input("estado", mssql.VarChar, estado)
+      .query(`
+        SELECT
+          t.id,
+          p.nombre AS paciente,
+          c.nombre AS clinica,
+          t.estado,
+          t.ticket,
+          FORMAT(t.fechaHora, 'yyyy-MM-dd HH:mm:ss') AS fechaHora
+        FROM Turnos t
+        INNER JOIN Pacientes p ON p.id = t.paciente_id
+        INNER JOIN Clinicas c ON c.id = t.clinica_id
+        WHERE t.estado = @estado
+        ORDER BY t.id DESC
+      `);
+
+    cb({ ok: true, data: result.recordset });
+  } catch (err) {
+    console.error("❌ Error en turnos:list:", err);
+    cb({ ok: false, message: "Error al listar turnos" });
+  }
+});
+
+  // --- ACCIONES SOBRE TURNOS ---
+  socket.on("turno:accion", async (payload, cb) => {
+    try {
+      const { id, accion } = payload || {};
+      if (!id || !accion) return cb?.({ ok: false, message: "Datos incompletos" });
+
+      let nuevoEstado;
+      if (accion === "llamar") nuevoEstado = "Llamado";
+      else if (accion === "finalizar") nuevoEstado = "Finalizado";
+      else if (accion === "ausente") nuevoEstado = "Ausente";
+      else return cb?.({ ok: false, message: "Acción inválida" });
+
+      await (await safeRequest())
+        .input("id", mssql.Int, id)
+        .input("estado", mssql.VarChar, nuevoEstado)
+        .query("UPDATE Turnos SET estado=@estado WHERE id=@id");
+
+      if (nuevoEstado === "Finalizado") {
+        await (await safeRequest())
+          .input("tid", mssql.Int, id)
+          .query(`
+            UPDATE Pacientes
+            SET estado = 'Finalizado'
+            WHERE id = (SELECT paciente_id FROM Turnos WHERE id=@tid)
+          `);
+      }
+
+      cb?.({ ok: true, message: "Estado actualizado" });
+      broadcastTurnosChanged();
+    } catch (err) {
+      console.error("❌ turno:accion", err);
+      cb?.({ ok: false, message: "Error al actualizar turno" });
+    }
+  });
+
+  socket.on("disconnect", () => console.log(`🔌 Socket desconectado: ${socket.id}`));
+});
+
+// ===============================
+// ARRANCAR SERVIDOR
 // ===============================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Servidor listo en http://192.168.1.18:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Servidor listo en http://0.0.0.0:${PORT}`);
 });
