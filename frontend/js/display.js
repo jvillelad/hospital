@@ -1,30 +1,56 @@
-// ======================================
-// DISPLAY - Sala de Espera
-// ======================================
+// ===============================
+// Conexión con backend (Socket.IO)
+// ===============================
+const socket = io("http://89.38.131.107:3000", {
+  auth: { token: localStorage.getItem("token") }
+});
 
-document.addEventListener("DOMContentLoaded", () => {
-  const API = "/api";
-  const token = localStorage.getItem("token");
-  if (!token) return location.href = "login.html";
-
-  async function cargarDisplay() {
-    const llamadosRes = await fetch(`${API}/turnos?estado=Llamado`, { headers: { "Authorization": `Bearer ${token}` } });
-    const esperaRes = await fetch(`${API}/turnos?estado=En%20espera`, { headers: { "Authorization": `Bearer ${token}` } });
-
-    const llamados = await llamadosRes.json();
-    const espera = await esperaRes.json();
-
-    const actuales = document.getElementById("actuales");
-    actuales.innerHTML = Array.isArray(llamados) && llamados.length
-      ? llamados.map(t => `<div class="ticket"><h3>${t.paciente}</h3><p>${t.clinica}</p></div>`).join("")
-      : `<p class="muted">No hay pacientes llamados actualmente</p>`;
-
-    const cola = document.getElementById("cola");
-    cola.innerHTML = Array.isArray(espera) && espera.length
-      ? espera.map(t => `<div class="item"><strong>${t.paciente}</strong> — ${t.clinica}</div>`).join("")
-      : `<p class="muted">No hay pacientes en espera</p>`;
+// ===============================
+// Renderización de turnos
+// ===============================
+function renderTurnos(turnos, contenedor) {
+  contenedor.innerHTML = "";
+  if (!turnos.length) {
+    contenedor.innerHTML = `<p class="muted">Sin pacientes</p>`;
+    return;
   }
 
-  cargarDisplay();
-  setInterval(cargarDisplay, 7000);
+  turnos.forEach(t => {
+    const div = document.createElement("div");
+    div.className = "ticket";
+    div.innerHTML = `
+      <h3>${t.paciente}</h3>
+      <p>${t.clinica}</p>
+      <p class="ticket-num">Ticket: <strong>${t.ticket || "-"}</strong></p>
+    `;
+    contenedor.appendChild(div);
+  });
+}
+
+// ===============================
+// Cargar listas desde backend
+// ===============================
+function cargarTurnos() {
+  // En espera
+  socket.emit("turnos:list", "En espera", (res) => {
+    if (res.ok) renderTurnos(res.data, document.getElementById("en-espera"));
+  });
+
+  // En consulta (Llamado)
+  socket.emit("turnos:list", "Llamado", (res) => {
+    if (res.ok) renderTurnos(res.data, document.getElementById("en-consulta"));
+  });
+}
+
+// ===============================
+// Eventos de conexión y actualización
+// ===============================
+socket.on("connect", () => {
+  console.log("✅ Conectado al servidor de turnos");
+  cargarTurnos();
+});
+
+socket.on("turnos:changed", () => {
+  console.log("🔄 Actualización recibida — recargando turnos");
+  cargarTurnos();
 });

@@ -1,74 +1,142 @@
-// ===================================
-// TRIAJE - Registro y Asignación
-// Adaptado para HTML clásico (formularios separados)
-// ===================================
+// ===============================
+// Triaje: Registro y Asignación
+// ===============================
 
-document.addEventListener("DOMContentLoaded", () => {
-  const API = "/api";
-  const token = localStorage.getItem("token");
-  if (!token) return location.href = "login.html";
+// Conexión al socket
+const token = localStorage.getItem("token");
+const socket = io({ auth: { token } });
 
-  document.getElementById("logout").addEventListener("click", e => {
-    e.preventDefault();
-    localStorage.clear();
-    location.href = "login.html";
+// ===============================
+// Función Toasts
+// ===============================
+function pushToast(msg, type = "info") {
+  const cont = document.getElementById("toast-container");
+  if (!cont) return;
+  const div = document.createElement("div");
+  div.className = `toast ${type}`;
+  div.textContent = msg;
+  cont.appendChild(div);
+  setTimeout(() => div.remove(), 4000);
+}
+
+function toastOk(msg) { pushToast(msg, "ok"); }
+function toastWarn(msg) { pushToast(msg, "warn"); }
+function toastErr(msg) { pushToast(msg, "err"); }
+
+// ===============================
+// ELEMENTOS DOM
+// ===============================
+const pacienteForm = document.getElementById("pacienteForm");
+const turnoForm = document.getElementById("turnoForm");
+const selectPacientes = document.getElementById("t_paciente");
+const selectClinicas = document.getElementById("t_clinica");
+
+// ===============================
+// CARGAR CLÍNICAS Y PACIENTES
+// ===============================
+function cargarClinicas() {
+  socket.emit("clinicas:list", (res) => {
+    if (res?.ok) {
+      selectClinicas.innerHTML = "";
+      if (res.data.length === 0)
+        selectClinicas.innerHTML = "<option disabled>(Sin clínicas)</option>";
+      else
+        res.data.forEach(c =>
+          selectClinicas.innerHTML += `<option value="${c.id}">${c.nombre}</option>`
+        );
+    } else {
+      toastErr(res?.message || "Error al cargar clínicas.");
+    }
   });
+}
 
-  async function cargarClinicas() {
-    const res = await fetch(`${API}/clinicas`, { headers: { "Authorization": `Bearer ${token}` } });
-    const data = await res.json();
-    if (!res.ok) return alert("Error al cargar clínicas");
-    document.getElementById("t_clinica").innerHTML = data.map(c => `<option value="${c.id}">${c.nombre}</option>`).join("");
-  }
-
-  async function cargarPacientes() {
-    const res = await fetch(`${API}/pacientes`, { headers: { "Authorization": `Bearer ${token}` } });
-    const data = await res.json();
-    if (!res.ok) return alert("Error al cargar pacientes");
-    document.getElementById("t_paciente").innerHTML = data.map(p => `<option value="${p.id}">${p.nombre}</option>`).join("");
-  }
-
-  document.getElementById("pacienteForm").addEventListener("submit", async e => {
-    e.preventDefault();
-    const nombre = document.getElementById("p_nombre").value.trim();
-    const edad = document.getElementById("p_edad").value.trim();
-    const sintomas = document.getElementById("p_sintomas").value.trim();
-
-    const res = await fetch(`${API}/pacientes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-      body: JSON.stringify({ nombre, edad, sintomas })
-    });
-    const data = await res.json();
-    alert(data.message || "Error al registrar paciente");
-    cargarPacientes();
+function cargarPacientes() {
+  socket.emit("pacientes:list", (res) => {
+    if (res?.ok) {
+      selectPacientes.innerHTML = "";
+      if (res.data.length === 0)
+        selectPacientes.innerHTML = "<option disabled>(Sin pacientes disponibles)</option>";
+      else
+        res.data.forEach(p =>
+          selectPacientes.innerHTML += `<option value="${p.id}">${p.nombre}</option>`
+        );
+    } else {
+      toastErr(res?.message || "Error al cargar pacientes.");
+    }
   });
+}
 
-document.getElementById("turnoForm").addEventListener("submit", async e => {
+// ===============================
+// FORMULARIO: NUEVO PACIENTE
+// ===============================
+pacienteForm.addEventListener("submit", (e) => {
   e.preventDefault();
-  const token = localStorage.getItem("token");
-  const paciente_id = document.getElementById("t_paciente").value;
-  const clinica_id = document.getElementById("t_clinica").value;
-  if (!paciente_id || !clinica_id) return alert("Selecciona paciente y clínica");
+  const nombre = document.getElementById("p_nombre").value.trim();
+  const edad = document.getElementById("p_edad").value.trim();
+  const sintomas = document.getElementById("p_sintomas").value.trim();
 
-  const res = await fetch(`/api/turnos`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
-    },
-    body: JSON.stringify({ paciente_id, clinica_id })
+  if (!nombre || !edad || !sintomas)
+    return toastWarn("Completa todos los campos.");
+
+  socket.emit("paciente:create", { nombre, edad, sintomas }, (res) => {
+    if (res?.ok) {
+      if (res.updated) {
+        // Si fue reactivado o actualizado
+        toastWarn(res.message || "Paciente reactivado correctamente");
+      } else if (res.created) {
+        // Si fue nuevo
+        toastOk(res.message || "Paciente registrado correctamente");
+      } else {
+        // fallback si viene ok pero sin flags
+        toastOk("Paciente procesado correctamente");
+      }
+      pacienteForm.reset();
+      cargarPacientes();
+    } else {
+      toastErr(res?.message || "Error al guardar paciente.");
+    }
   });
-
-  const data = await res.json().catch(()=>({}));
-  if (!res.ok) {
-    alert(data?.message || "Error al crear turno");
-    return;
-  }
-
-  alert("✅ Turno creado correctamente");
 });
 
+// ===============================
+// FORMULARIO: CREAR TURNO
+// ===============================
+turnoForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const paciente_id = selectPacientes.value;
+  const clinica_id = selectClinicas.value;
+
+  if (!paciente_id || !clinica_id)
+    return toastWarn("Selecciona paciente y clínica.");
+
+  socket.emit("turno:create", { paciente_id, clinica_id }, (res) => {
+    if (res?.ok) {
+      toastOk(`Turno creado correctamente (Ticket ${res.ticket})`);
+      turnoForm.reset();
+      cargarPacientes();
+    } else {
+      toastErr(res?.message || "Error al crear turno.");
+    }
+  });
+});
+
+// ===============================
+// EVENTOS SOCKET
+// ===============================
+socket.on("connect", () => {
   cargarClinicas();
   cargarPacientes();
+});
+
+socket.on("turnos:changed", () => {
+  cargarPacientes();
+});
+
+// ===============================
+// LOGOUT
+// ===============================
+document.getElementById("logout").addEventListener("click", (e) => {
+  e.preventDefault();
+  localStorage.removeItem("token");
+  window.location.href = "login.html";
 });

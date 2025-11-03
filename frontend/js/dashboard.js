@@ -1,58 +1,80 @@
 // ======================================
 // DASHBOARD MÉDICO - Panel de Turnos
+// Socket.IO version con separación por estado
 // ======================================
 
 document.addEventListener("DOMContentLoaded", () => {
-  const API = "/api";
   const token = localStorage.getItem("token");
   if (!token) return location.href = "login.html";
 
-  document.getElementById("logout").addEventListener("click", e => {
-    e.preventDefault();
-    localStorage.clear();
-    location.href = "login.html";
-  });
+  const socket = io("/", { auth: { token } });
 
-  async function cargarTurnos() {
-    const estados = ["Llamado", "En espera"];
-    const cont = document.getElementById("lista-espera");
-    cont.innerHTML = "";
+  const contConsulta = document.getElementById("lista-consulta");
+  const contEspera = document.getElementById("lista-espera");
 
-    for (const estado of estados) {
-      const res = await fetch(`${API}/turnos?estado=${encodeURIComponent(estado)}`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (!res.ok) continue;
+  //document.getElementById("logout").addEventListener("click", e => {
+   // e.preventDefault();
+    //localStorage.clear();
+    //location.href = "login.html";
+  //});
 
-      if (!Array.isArray(data) || data.length === 0) continue;
-      cont.innerHTML += `<h3>${estado}</h3>` + data.map(t => `
-        <div class="item">
-          <div><strong>${t.paciente}</strong><br><small>${t.clinica}</small></div>
-          <span class="badge ${estado === 'Llamado' ? 'call' : 'wait'}">${estado}</span>
-          <div class="actions">
-            ${estado === "En espera"
-              ? `<button onclick="accionTurno(${t.id}, 'llamar')">Llamar</button>`
-              : `<button onclick="accionTurno(${t.id}, 'finalizar')">Finalizar</button>
-                 <button onclick="accionTurno(${t.id}, 'ausente')">Ausente</button>`}
-          </div>
-        </div>`).join("");
+  function renderTurnos(container, data, estado) {
+    container.innerHTML = "";
+    if (!Array.isArray(data) || data.length === 0) {
+      container.innerHTML = `<p class="muted">No hay pacientes ${estado === "Llamado" ? "en consulta" : "en espera"}</p>`;
+      return;
     }
 
-    if (!cont.innerHTML)
-      cont.innerHTML = `<p class="muted">No hay pacientes pendientes</p>`;
+    data.forEach(t => {
+      const div = document.createElement("div");
+      div.className = "item";
+      div.innerHTML = `
+        <div>
+          <strong>${t.paciente}</strong><br>
+          <small>${t.clinica}</small><br>
+          <small>Ticket: <b>${t.ticket || "-"}</b></small>
+        </div>
+        <span class="badge ${estado === "Llamado" ? "call" : "wait"}">${estado}</span>
+        <div class="actions">
+          ${
+            estado === "En espera"
+              ? `<button onclick="accionTurno(${t.id}, 'llamar')">Llamar</button>`
+              : `<button onclick="accionTurno(${t.id}, 'finalizar')">Finalizar</button>
+                 <button onclick="accionTurno(${t.id}, 'ausente')">Ausente</button>`
+          }
+        </div>`;
+      container.appendChild(div);
+    });
   }
 
-  window.accionTurno = async function (id, tipo) {
-    const res = await fetch(`${API}/turnos/${id}/${tipo}`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${token}` }
+  async function cargarTurnos() {
+    socket.emit("turnos:list", "Llamado", resp1 => {
+      if (resp1.ok) renderTurnos(contConsulta, resp1.data, "Llamado");
     });
-    const data = await res.json();
-    if (!res.ok) return alert(data.message || "Error al actualizar turno");
-    cargarTurnos();
+    socket.emit("turnos:list", "En espera", resp2 => {
+      if (resp2.ok) renderTurnos(contEspera, resp2.data, "En espera");
+    });
+  }
+
+  window.accionTurno = (id, tipo) => {
+    socket.emit("turno:accion", { id, accion: tipo }, resp => {
+      mostrarAlerta(resp.ok, resp.message);
+      if (resp.ok) cargarTurnos();
+    });
   };
 
+  socket.on("turnos:changed", () => cargarTurnos());
   cargarTurnos();
-  setInterval(cargarTurnos, 5000);
+
+  // ---------- alertas visuales ----------
+  const alerta = document.createElement("div");
+  alerta.className = "alerta";
+  document.body.appendChild(alerta);
+
+  function mostrarAlerta(ok, msg) {
+    alerta.textContent = msg;
+    alerta.style.background = ok ? "rgba(16,185,129,0.9)" : "rgba(239,68,68,0.9)";
+    alerta.classList.add("show");
+    setTimeout(() => alerta.classList.remove("show"), 2000);
+  }
 });

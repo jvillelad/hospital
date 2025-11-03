@@ -27,7 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
       localStorage.setItem("user", JSON.stringify(data.user));
 
       // Redirige según rol
-      if (data.user.rol === "admin") location.href = "dashboard.html";
+      if (data.user.rol === "admin") location.href = "triage.html";
       else location.href = "triage.html";
     } catch (err) {
       console.error(err);
