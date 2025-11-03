@@ -1,54 +1,36 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Triaje | Turnos Hospital</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Triaje - Registro y Asignación</title>
+  <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
-  <nav class="topbar">
-    <div class="brand">Triaje</div>
-    <div>
-      <a href="dashboard.html">Dashboard Médico</a>
-      <a href="display.html" target="_blank">Display</a>
-      <a href="#" id="logout">Salir</a>
-    </div>
-  </nav>
-
   <div class="container grid-2">
-    <section class="card">
+    <div class="card">
       <h2>Registrar Paciente</h2>
       <form id="pacienteForm">
-        <label>Nombre</label>
-        <input id="p_nombre" required>
-        <label>Edad</label>
-        <input id="p_edad" type="number" min="0">
-        <label>Síntomas</label>
-        <input id="p_sintomas">
+        <input type="text" id="p_nombre" placeholder="Nombre completo" required />
+        <input type="number" id="p_edad" placeholder="Edad" required />
+        <input type="text" id="p_sintomas" placeholder="Síntomas" required />
         <button type="submit">Guardar</button>
       </form>
-    </section>
+    </div>
 
-    <section class="card">
-      <h2>Asignar a Clínica</h2>
+    <div class="card">
+      <h2>Asignar Clínica</h2>
       <form id="turnoForm">
-        <label>Paciente</label>
-        <select id="t_paciente"></select>
-        <label>Clínica</label>
-        <select id="t_clinica"></select>
+        <select id="t_paciente" required></select>
+        <select id="t_clinica" required></select>
         <button type="submit">Crear Turno</button>
       </form>
-    </section>
+    </div>
   </div>
-
-  <script>
-    document.getElementById('logout').addEventListener('click', e => {
-      e.preventDefault();
-      localStorage.clear();
-      location.href = 'login.html';
-    });
-  </script>
+  <div class="alerta-container" id="alertas"></div>
+  <script src="js/navbar.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
   <script src="js/triage.js"></script>
+<div id="toast-container"></div>
 </body>
 </html>
