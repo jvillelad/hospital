@@ -24,5 +24,8 @@ URLs por defecto (localhost):
 - API: http://localhost:3000
 - Frontend: abre `frontend/login.html` o servir con Nginx en http://localhost
 
+Pruebas en produccion
+URL
+- https://clinica.securitylabs.site/login.html
 Credenciales demo:
 - admin@hospital.com / password
