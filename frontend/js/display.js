@@ -1,9 +1,9 @@
 // ===============================
 // Conexión con backend (Socket.IO)
 // ===============================
-const socket = io("http://89.38.131.107:3000", {
-  auth: { token: localStorage.getItem("token") }
-});
+
+// 🔓 Conexión pública (sin login, solo lectura)
+const socket = io("/", { auth: { publicDisplay: true } });
 
 // ===============================
 // Renderización de turnos
@@ -46,7 +46,7 @@ function cargarTurnos() {
 // Eventos de conexión y actualización
 // ===============================
 socket.on("connect", () => {
-  console.log("✅ Conectado al servidor de turnos");
+  console.log("✅ Conectado al servidor de turnos (Display)");
   cargarTurnos();
 });
 
