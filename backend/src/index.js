@@ -339,6 +339,62 @@ io.on("connection", (socket) => {
     }
   });
 
+  // --- REASIGNAR TURNO ENTRE CLINICAS ---
+socket.on("turno:reasignar", async (payload, cb) => {
+  try {
+    const { id, nueva_clinica_id, motivo } = payload || {};
+    if (!id || !nueva_clinica_id || !motivo)
+      return cb?.({ ok: false, message: "Datos incompletos" });
+
+    const db = await getPool();
+
+    // Obtener prefijo de la nueva clinica
+    const prefijoQuery = await db.request()
+      .input("id", mssql.Int, nueva_clinica_id)
+      .query("SELECT TOP 1 prefijo FROM Clinicas WHERE id=@id");
+    const prefijo = prefijoQuery.recordset[0]?.prefijo || "A";
+
+    // Generar nuevo ticket con el prefijo de la clinica destino
+    const ultimo = await db.request()
+      .input("cid", mssql.Int, nueva_clinica_id)
+      .input("pref", mssql.VarChar, prefijo + '%')
+      .query(`
+        SELECT TOP 1 ticket FROM Turnos
+        WHERE clinica_id=@cid AND ticket LIKE @pref
+        ORDER BY id DESC
+      `);
+
+    let nuevoTicket = `${prefijo}001`;
+    if (ultimo.recordset.length > 0) {
+      const prev = ultimo.recordset[0].ticket;
+      const num = parseInt(prev.replace(prefijo, "")) + 1;
+      nuevoTicket = prefijo + num.toString().padStart(3, "0");
+    }
+
+    // Actualizar el turno
+    await db.request()
+      .input("id", mssql.Int, id)
+      .input("clinica_id", mssql.Int, nueva_clinica_id)
+      .input("ticket", mssql.VarChar, nuevoTicket)
+      .input("motivo", mssql.VarChar, motivo)
+      .input("fecha", mssql.DateTime, new Date())
+      .query(`
+        UPDATE Turnos
+        SET clinica_id=@clinica_id,
+            ticket=@ticket,
+            motivo_reasignacion=@motivo,
+            fecha_reasignacion=@fecha
+        WHERE id=@id
+      `);
+
+    cb?.({ ok: true, message: "Turno reasignado correctamente", ticket: nuevoTicket });
+    broadcastTurnosChanged();
+  } catch (err) {
+    console.error("❌ turno:reasignar", err);
+    cb?.({ ok: false, message: "Error al reasignar turno" });
+  }
+});
+  
   socket.on("disconnect", () => console.log(`🔌 Socket desconectado: ${socket.id}`));
 });
 
