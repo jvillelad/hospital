@@ -22,6 +22,54 @@
       </div>
     </div>
   </div>
+  
+<!-- MODAL DE REASIGNACION -->
+  <div id="modalReasignar" class="modal" style="
+    display:none;
+    position:fixed;
+    top:0; left:0; width:100%; height:100%;
+    background:rgba(0,0,0,0.6);
+    justify-content:center;
+    align-items:center;
+    z-index:9999;
+  ">
+    <div style="
+      background:white;
+      padding:20px;
+      width:350px;
+      border-radius:10px;
+      box-shadow:0 0 20px rgba(0,0,0,0.3);
+    ">
+      <h3>Reasignar Turno</h3>
+
+      <label>Nueva Clínica:</label>
+      <select id="nuevaClinica" style="width:100%; padding:8px; margin-top:5px;"></select>
+
+      <label style="margin-top:10px;">Motivo:</label>
+      <textarea id="motivoReasignacion" rows="3" style="width:100%; padding:8px;"></textarea>
+
+      <div style="margin-top:15px; display:flex; justify-content:space-between;">
+        <button onclick="confirmarReasignacion()" style="
+          padding:10px 15px; 
+          background:green; 
+          color:white; 
+          border:none; 
+          border-radius:5px;">
+          Guardar
+        </button>
+
+        <button onclick="document.getElementById('modalReasignar').style.display='none'" style="
+          padding:10px 15px; 
+          background:#aaa; 
+          color:white; 
+          border:none; 
+          border-radius:5px;">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+  
   <script src="js/navbar.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/dashboard.js"></script>
