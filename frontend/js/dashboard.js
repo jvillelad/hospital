@@ -63,6 +63,42 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
+  // REASIGNACION: Abrir Modal
+  window.abrirReasignar = (id) => {
+    turnoActual = id;
+    document.getElementById("modalReasignar").style.display = "flex";
+
+    socket.emit("clinicas:list", (res) => {
+      const select = document.getElementById("nuevaClinica");
+      select.innerHTML = "";
+      res.data.forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = c.nombre;
+        select.appendChild(opt);
+      });
+    });
+  };
+  // CONFIRMAR REASIGNACION
+  window.confirmarReasignacion = () => {
+    const clinica = document.getElementById("nuevaClinica").value;
+    const motivo = document.getElementById("motivoReasignacion").value.trim();
+
+    if (!motivo) return mostrarAlerta(false, "Debe ingresar un motivo");
+
+    socket.emit("turno:reasignar",
+      { id: turnoActual, nueva_clinica_id: clinica, motivo },
+      (res) => {
+        mostrarAlerta(res.ok, res.message);
+        if (res.ok) {
+          document.getElementById("modalReasignar").style.display = "none";
+          document.getElementById("motivoReasignacion").value = "";
+          cargarTurnos();
+        }
+      }
+    );
+  };
+
   socket.on("turnos:changed", () => cargarTurnos());
   cargarTurnos();
 
